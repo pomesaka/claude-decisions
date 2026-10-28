@@ -1,0 +1,6 @@
+{
+  "name": "claude-decisions",
+  "main": "src/entrypoints/worker.ts",
+  "compatibility_date": "2026-10-28",
+  "vars": { "TRANSPORT": "direct" },
+}
