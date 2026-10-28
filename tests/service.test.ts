@@ -8,7 +8,6 @@ import { requestSchema } from "../src/contract/request";
 import type { DecisionModel, ModelAnswer } from "../src/ports/model";
 import { predicate, choice, score } from "./fixtures";
 const output: ModelAnswer = {
-  id: 0,
   refusal: false,
   probability: null,
   weights: [0.2, 0.3, 0.5],
@@ -66,7 +65,6 @@ test.each([
 test("refusal is question local", () =>
   expect(
     normalize(predicate, {
-      id: 0,
       refusal: true,
       probability: null,
       weights: null,
@@ -80,20 +78,21 @@ test("400 questions retain order, aggregate usage, and cap concurrency", async (
     maxActive = 0,
     calls = 0;
   const model: DecisionModel = {
-    async evaluate(_request, questions) {
+    async evaluate(_request, question) {
       calls++;
       active++;
       maxActive = Math.max(maxActive, active);
-      await Bun.sleep((questions[0]?.id ?? 0) % 3);
+      const index = Number(question.name);
+      // Uneven delays make answers arrive out of order.
+      await Bun.sleep(index % 3);
       active--;
       return {
-        answers: questions.toReversed().map(({ id }) => ({
-          id,
-          refusal: id === 17,
-          probability: id === 17 ? null : id / 400,
+        answer: {
+          refusal: index === 17,
+          probability: index === 17 ? null : index / 400,
           weights: null,
           confidence: null,
-        })),
+        },
         usage: { ...emptyUsage(), input_tokens: 10, total_tokens: 10 },
       };
     },
@@ -109,53 +108,12 @@ test("400 questions retain order, aggregate usage, and cap concurrency", async (
     request,
     new AbortController().signal,
   );
-  expect(result.answers).toHaveLength(400);
   expect(result.answers.map((a) => a.name)).toEqual(
     request.questions.map((q) => q.name ?? null),
   );
   expect(result.answers[17]?.type).toBe("refusal");
-  expect(maxActive).toBeLessThanOrEqual(3);
-  expect(calls).toBe(20);
-  expect(result.usage.total_tokens).toBe(200);
+  expect(result.answers[200]).toMatchObject({ probability: 0.5 });
+  expect(maxActive).toBeLessThanOrEqual(8);
+  expect(calls).toBe(400);
+  expect(result.usage.total_tokens).toBe(4000);
 });
-test.each(["duplicate", "missing", "wrong"])(
-  "rejects %s model ids",
-  async (kind) => {
-    const model: DecisionModel = {
-      async evaluate() {
-        return {
-          answers:
-            kind === "missing"
-              ? []
-              : [
-                  {
-                    id: kind === "wrong" ? 42 : 0,
-                    refusal: true,
-                    probability: null,
-                    weights: null,
-                    confidence: null,
-                  },
-                  ...(kind === "duplicate"
-                    ? [
-                        {
-                          id: 0,
-                          refusal: true,
-                          probability: null,
-                          weights: null,
-                          confidence: null,
-                        },
-                      ]
-                    : []),
-                ],
-          usage: emptyUsage(),
-        };
-      },
-    };
-    await expect(
-      new DecisionService(model).create(
-        requestSchema.parse({ input: "x", questions: [predicate] }),
-        new AbortController().signal,
-      ),
-    ).rejects.toThrow();
-  },
-);

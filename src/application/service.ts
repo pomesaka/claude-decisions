@@ -80,16 +80,10 @@ export function normalize(
 export class DecisionService {
   constructor(
     private model: DecisionModel,
-    private chunkSize = 20,
-    private concurrency = 3,
+    private concurrency = 8,
   ) {
-    if (
-      !Number.isInteger(chunkSize) ||
-      chunkSize < 1 ||
-      !Number.isInteger(concurrency) ||
-      concurrency < 1
-    )
-      throw new Error("Invalid batch configuration");
+    if (!Number.isInteger(concurrency) || concurrency < 1)
+      throw new Error("Invalid concurrency configuration");
   }
   async create(
     request: DecisionRequest,
@@ -97,50 +91,18 @@ export class DecisionService {
   ): Promise<DecisionResponse> {
     const controller = new AbortController();
     const combined = AbortSignal.any([signal, controller.signal]);
-    const chunks: { id: number; question: Question }[][] = [];
-    // Bound estimated output size as well as question count (255-way choices are large).
-    let current: { id: number; question: Question }[] = [],
-      budget = 0;
-    for (const [id, question] of request.questions.entries()) {
-      const cost =
-        question.type === "choice"
-          ? question.choices.length
-          : question.type === "score"
-            ? question.levels.length
-            : 1;
-      if (
-        current.length &&
-        (current.length >= this.chunkSize || budget + cost > 600)
-      ) {
-        chunks.push(current);
-        current = [];
-        budget = 0;
-      }
-      current.push({ id, question });
-      budget += cost;
-    }
-    if (current.length) chunks.push(current);
-    const answers: DecisionResponse["answers"] = new Array(
-      request.questions.length,
-    );
+    const questions = request.questions;
+    const answers: DecisionResponse["answers"] = new Array(questions.length);
     const usage = emptyUsage();
     let next = 0;
     const run = async () => {
-      while (next < chunks.length) {
+      while (next < questions.length) {
         combined.throwIfAborted();
-        const chunk = chunks[next++];
-        if (!chunk) return;
-        const result = await this.model.evaluate(request, chunk, combined);
-        if (result.answers.length !== chunk.length) throw invalidOutput();
-        const byId = new Map(
-          result.answers.map((answer) => [answer.id, answer]),
-        );
-        if (byId.size !== chunk.length) throw invalidOutput();
-        for (const { id, question } of chunk) {
-          const answer = byId.get(id);
-          if (!answer) throw invalidOutput();
-          answers[id] = normalize(question, answer);
-        }
+        const index = next++;
+        const question = questions[index];
+        if (!question) return;
+        const result = await this.model.evaluate(request, question, combined);
+        answers[index] = normalize(question, result.answer);
         usage.input_tokens += result.usage.input_tokens;
         usage.output_tokens += result.usage.output_tokens;
         usage.total_tokens += result.usage.total_tokens;
@@ -154,7 +116,10 @@ export class DecisionService {
     };
     try {
       await Promise.all(
-        Array.from({ length: Math.min(this.concurrency, chunks.length) }, run),
+        Array.from(
+          { length: Math.min(this.concurrency, questions.length) },
+          run,
+        ),
       );
     } catch (error) {
       controller.abort();

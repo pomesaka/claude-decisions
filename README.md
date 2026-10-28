@@ -45,7 +45,7 @@ console.log(await response.json());
 ## 対応範囲
 
 - predicate、文字列・booleanのchoice、2〜10段階のscore、質問単位のrefusal。
-- 最大400質問。20質問または選択肢600個を目安に分割し、最大3チャンクを並列実行。結果はIDで照合し入力順に統合。
+- 最大400質問。1質問につき1回 Anthropic を呼び、最大8件を並列実行。結果は入力順に並べる。
 - user・developer・system・assistantの会話履歴、function/custom toolの呼び出しと出力、JSON、質問内画像・JSON。
 - BunではHTTP(S)画像URLとBase64画像。PNG/JPEG/GIF/WebP、1画像5 MiBまで。
 - Bearer認証、起動時設定検証、JSON・スキーマエラー、上流認証・制限・障害・タイムアウトの区別。
@@ -55,7 +55,7 @@ console.log(await response.json());
 
 ## 構成
 
-`contract` → 公開スキーマ、`application` → 分割・集計・回答変換、`ports` → 推論・資格情報・認証・画像取得の境界、`adapters` → Anthropicと画像通信、`http` → Hono、`entrypoints` → Bun/Workersの依存組み立てです。CoreはBun・環境変数・Hono・Anthropic SDKに依存しません。
+`contract` → 公開スキーマ、`application` → 並列実行・集計・回答変換、`ports` → 推論・資格情報・認証・画像取得の境界、`adapters` → Anthropicと画像通信、`http` → Hono、`entrypoints` → Bun/Workersの依存組み立てです。CoreはBun・環境変数・Hono・Anthropic SDKに依存しません。
 
 CredentialStoreはリクエスト実行時にキーを取得します。D1等への変更はこのインターフェースを実装します。APIキー発行・課金・D1保存は含みません。
 
@@ -94,8 +94,8 @@ RUN_LIVE_TESTS=1 bun test tests/live.test.ts
 ## 互換性と運用上の差異
 
 - OpenAI SDK 7.45.1の `DecisionCreateParams` / `Decision` と型を照合しています。`model` の省略可能化・無視は意図した変更です。推論精度や確率の校正がOpenAIと一致する保証はありません。
-- `usage` はAnthropicの計測値です。入力は通常入力・キャッシュ読込・書込の合計、出力は上流の包括的な出力数。reasoningは上流の `thinking_tokens` が得られた場合に使用し、未提供なら0です。チャンクごとに入力が再送されるため、使用量にも重複が含まれます。
-- キャッシュキーは証拠の前に置く区分情報として使用します。明示breakpointは最新4箇所まで、implicitでは入力末尾にも境界を置きます。OpenAIの30分TTLはAnthropicの1時間TTLに対応させています。キャッシュの保持期間、最小トークン数、課金、命中率は同一ではありません。
+- `usage` はAnthropicの計測値です。入力は通常入力・キャッシュ読込・書込の合計、出力は上流の包括的な出力数。reasoningは上流の `thinking_tokens` が得られた場合に使用し、未提供なら0です。質問ごとに入力が再送されるため、使用量にも重複が含まれます。
+- キャッシュキーは証拠の前に置く区分情報として使用します。明示breakpointは最新4箇所まで、implicitでは入力末尾にも境界を置きます。TTLは既定でAnthropicの5分、OpenAIの30分TTLを指定したときだけ1時間に対応させています。出力スキーマが質問ごとに違うため、入力のキャッシュは質問の間で共有されません。キャッシュの保持期間、最小トークン数、課金、命中率は同一ではありません。
 - `safety_identifier` は検証して受理しますが、認証主体やAnthropic上の利用者IDとして使用しません。
 - HTTP本文は32 MiBまで、同時処理はプロセス当たり8リクエストまで（超過は429）。分散レート制限ではありません。全体120秒、上流60秒、画像取得10秒、上流リトライは最大1回です。
 - JSONの深さ32・値数10,000・compact UTF-8で256 KiBの制約や、ツール出力と先行呼び出しの一致は実行時に検証します。OpenAPIだけではこれらの相関制約を表現しきれません。

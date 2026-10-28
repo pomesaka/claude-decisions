@@ -13,15 +13,14 @@ const auth = new EnvTokenAuthenticator(
   new EnvCredentialStore({ DECISIONS_API_TOKEN: "local-test-token" }),
 );
 const model: DecisionModel = {
-  async evaluate(_request, questions) {
+  async evaluate(_request, question) {
     return {
-      answers: questions.map(({ id, question }) => ({
-        id,
+      answer: {
         refusal: false,
         probability: question.type === "predicate" ? 0.8 : null,
         weights: question.type === "predicate" ? null : [0.2, 0.3, 0.5],
         confidence: question.type === "predicate" ? null : 0.7,
-      })),
+      },
       usage: emptyUsage(),
     };
   },
@@ -123,10 +122,10 @@ test("local capacity limit returns 429 and recovers", async () => {
   let entered = 0;
   const busy = createApp(
     new DecisionService({
-      async evaluate(request, questions, signal) {
+      async evaluate(request, question, signal) {
         entered++;
         await blocked;
-        return model.evaluate(request, questions, signal);
+        return model.evaluate(request, question, signal);
       },
     }),
     auth,

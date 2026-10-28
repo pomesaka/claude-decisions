@@ -20,18 +20,7 @@ test("Workers runtime evaluates a request through the real Anthropic SDK", async
         ANTHROPIC_API_KEY: "mock-provider-key",
         DECISIONS_API_TOKEN: "mock-client-token",
       },
-      outboundService: async () =>
-        Response.json(
-          message([
-            {
-              id: 0,
-              refusal: false,
-              probability: 0.9,
-              weights: null,
-              confidence: null,
-            },
-          ]),
-        ),
+      outboundService: async () => Response.json(message({ probability: 0.9 })),
     }),
   );
   try {

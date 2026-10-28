@@ -1,6 +1,5 @@
 import type { DecisionCreateParams } from "openai/resources/decisions";
 import type { Message } from "@anthropic-ai/sdk/resources/messages";
-import type { ModelAnswer } from "../src/ports/model";
 export const png =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR4nGP4EGBDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAPhN8EzaYsN9AAAAAElFTkSuQmCC";
 export const predicate = {
@@ -91,7 +90,8 @@ export const fullRequest: DecisionCreateParams = {
   safety_identifier: null,
 };
 export function message(
-  answers: ModelAnswer[],
+  // Wire shape of the per-question output schema.
+  output: Record<string, unknown>,
   changes: Partial<Message> = {},
 ): Message {
   return {
@@ -99,9 +99,7 @@ export function message(
     type: "message",
     role: "assistant",
     model: "claude-haiku-5-5",
-    content: [
-      { type: "text", text: JSON.stringify({ answers }), citations: null },
-    ],
+    content: [{ type: "text", text: JSON.stringify(output), citations: null }],
     container: null,
     diagnostics: null,
     stop_details: null,
